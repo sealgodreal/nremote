@@ -439,6 +439,18 @@ wss.on(
             return;
         }
 
+        for (const existing of connection.clients) {
+            if (
+                existing !== ws &&
+                existing.readyState === WebSocket.OPEN
+            ) {
+                existing.close(
+                    1000,
+                    "Replaced by another client."
+                );
+            }
+        }
+        connection.clients.clear();
         connection.clients.add(ws);
 
         sendJSON(
