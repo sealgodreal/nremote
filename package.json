@@ -5,7 +5,7 @@
   "description": "Local Nebula remote screen relay server",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "npm start"
   },
   "dependencies": {
     "ws": "^8.18.3"
