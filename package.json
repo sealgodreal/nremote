@@ -1,11 +1,11 @@
 {
-  "name": "nebula-remote-local",
+  "name": "nebula-remote",
   "version": "1.0.0",
   "private": true,
-  "description": "Local Nebula remote screen relay server",
+  "description": "nebula remote streaming backend",
   "main": "server.js",
   "scripts": {
-    "start": "npm start"
+    "start": "node server.js"
   },
   "dependencies": {
     "ws": "^8.18.3"
