@@ -33,7 +33,10 @@ function sendJSON(ws, data) {
         ws &&
         ws.readyState === WebSocket.OPEN
     ) {
-        ws.send(JSON.stringify(data));
+        try {
+            ws.send(JSON.stringify(data));
+        } catch (error) {
+        }
     }
 }
 
@@ -58,10 +61,9 @@ function notifyAgentViewerCount(connection) {
 
 function sendClient(res) {
     try {
-        const html =
-            fs.readFileSync(
-                CLIENT_FILE
-            );
+        const html = fs.readFileSync(
+            CLIENT_FILE
+        );
 
         res.writeHead(200, {
             "Content-Type":
@@ -102,6 +104,33 @@ function json(res, status, data) {
     );
 }
 
+function forwardAgentSignal(connection, message) {
+    for (
+        const client of connection.clients
+    ) {
+        if (
+            client.readyState === WebSocket.OPEN
+        ) {
+            sendJSON(
+                client,
+                message
+            );
+        }
+    }
+}
+
+function forwardClientSignal(connection, message) {
+    if (
+        connection.agent &&
+        connection.agent.readyState === WebSocket.OPEN
+    ) {
+        sendJSON(
+            connection.agent,
+            message
+        );
+    }
+}
+
 const server = http.createServer(
     (req, res) => {
         const url = new URL(
@@ -109,8 +138,7 @@ const server = http.createServer(
             `http://${req.headers.host || "localhost"}`
         );
 
-        const token =
-            getToken(req);
+        const token = getToken(req);
 
         if (req.method === "OPTIONS") {
             res.writeHead(204, {
@@ -247,12 +275,10 @@ const server = http.createServer(
     }
 );
 
-const wss =
-    new WebSocket.Server({
-        noServer: true,
-        maxPayload:
-            32 * 1024 * 1024
-    });
+const wss = new WebSocket.Server({
+    noServer: true,
+    maxPayload: 1024 * 1024
+});
 
 server.on(
     "upgrade",
@@ -262,8 +288,7 @@ server.on(
             `http://${req.headers.host || "localhost"}`
         );
 
-        const token =
-            getToken(req);
+        const token = getToken(req);
 
         if (
             !token ||
@@ -275,6 +300,17 @@ server.on(
                 url.pathname
             )
         ) {
+            socket.write(
+                "HTTP/1.1 404 Not Found\r\n" +
+                "Connection: close\r\n" +
+                "\r\n"
+            );
+
+            socket.destroy();
+            return;
+        }
+
+        if (!connections.has(token)) {
             socket.write(
                 "HTTP/1.1 404 Not Found\r\n" +
                 "Connection: close\r\n" +
@@ -308,15 +344,12 @@ wss.on(
             `http://${req.headers.host || "localhost"}`
         );
 
-        const token =
-            getToken(req);
+        const token = getToken(req);
 
-        const role =
-            (
-                url.searchParams.get(
-                    "role"
-                ) || "client"
-            ).toLowerCase();
+        const role = (
+            url.searchParams.get("role") ||
+            "client"
+        ).toLowerCase();
 
         const connection =
             connections.get(token);
@@ -363,43 +396,24 @@ wss.on(
                     isBinary
                 ) => {
                     if (isBinary) {
-                        for (
-                            const client of
-                                connection.clients
-                        ) {
-                            if (
-                                client.readyState ===
-                                WebSocket.OPEN
-                            ) {
-                                client.send(
-                                    data,
-                                    {
-                                        binary:
-                                            true
-                                    }
-                                );
-                            }
-                        }
-
                         return;
                     }
 
-                    const message =
-                        data.toString();
+                    let message;
 
-                    for (
-                        const client of
-                            connection.clients
-                    ) {
-                        if (
-                            client.readyState ===
-                            WebSocket.OPEN
-                        ) {
-                            client.send(
-                                message
+                    try {
+                        message =
+                            JSON.parse(
+                                data.toString()
                             );
-                        }
+                    } catch (error) {
+                        return;
                     }
+
+                    forwardAgentSignal(
+                        connection,
+                        message
+                    );
                 }
             );
 
@@ -439,10 +453,14 @@ wss.on(
             return;
         }
 
-        for (const existing of connection.clients) {
+        for (
+            const existing of
+                connection.clients
+        ) {
             if (
                 existing !== ws &&
-                existing.readyState === WebSocket.OPEN
+                existing.readyState ===
+                    WebSocket.OPEN
             ) {
                 existing.close(
                     1000,
@@ -450,6 +468,7 @@ wss.on(
                 );
             }
         }
+
         connection.clients.clear();
         connection.clients.add(ws);
 
@@ -478,15 +497,21 @@ wss.on(
                     return;
                 }
 
-                if (
-                    connection.agent &&
-                    connection.agent.readyState ===
-                        WebSocket.OPEN
-                ) {
-                    connection.agent.send(
-                        data.toString()
-                    );
+                let message;
+
+                try {
+                    message =
+                        JSON.parse(
+                            data.toString()
+                        );
+                } catch (error) {
+                    return;
                 }
+
+                forwardClientSignal(
+                    connection,
+                    message
+                );
             }
         );
 
@@ -520,7 +545,12 @@ wss.on(
 
 server.on(
     "error",
-    () => {}
+    error => {
+        console.error(
+            "HTTP server error:",
+            error
+        );
+    }
 );
 
 server.listen(
